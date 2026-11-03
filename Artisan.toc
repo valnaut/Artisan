@@ -1,7 +1,7 @@
 ## Interface: 11200
 ## Title: Artisan |cffc79c6e-Spit-|r
 ## Author: Otari98, valnaut
-## Version: 3.1.0
+## Version: 3.1.0-4
 ## Notes: Compact window for your professions 3.1.0
 
 ## SavedVariables: ArtisanConfig
