@@ -510,7 +510,7 @@ local function SyncWindowPosition(sourceFrame, targetFrame)
     end
 end
 
--- Create a pair of Spellbook/Pet style bottom tabs (explicitly shown since SpellBookFrameTabButtonTemplate is hidden="true")
+-- Create a pair of Spellbook/Pet style bottom tabs
 local function CreateSpellBookStyleBottomTabs(parent, namePrefix, yOffsetFromBottomLeft, onClickTab1, onClickTab2)
     local tab1 = CreateFrame("Button", namePrefix .. "1", parent, "SpellBookFrameTabButtonTemplate")
     tab1:SetID(1)
@@ -530,7 +530,6 @@ local function CreateSpellBookStyleBottomTabs(parent, namePrefix, yOffsetFromBot
     tab2:SetScript("OnLeave", nil)
     tab2:SetScript("OnClick", onClickTab2)
 
-    -- Copy exact textures from Blizzard's SpellBookFrameTabButton1 & SpellBookFrameTabButton2 if present
     if _G.SpellBookFrameTabButton1 then
         local norm1 = SpellBookFrameTabButton1:GetNormalTexture()
         local dis1 = SpellBookFrameTabButton1:GetDisabledTexture()
@@ -552,14 +551,12 @@ local function CreateSpellBookStyleBottomTabs(parent, namePrefix, yOffsetFromBot
         end
     end
 
-    -- Critical: SpellBookFrameTabButtonTemplate has hidden="true" in XML, so explicitly Show both
     tab1:Show()
     tab2:Show()
 
     return tab1, tab2
 end
 
--- Update SpellBookFrameTabButtonTemplate active/inactive visual state
 local function UpdateSpellBookStyleTabs(tab1, tab2, activeID)
     if not tab1 or not tab2 then return end
     local hl1 = _G[tab1:GetName() .. "HighlightTexture"]
@@ -583,21 +580,38 @@ end
 -- Part 1 & 2: ArtisanFrame Bottom Tabs, 10 Scaled Right-Side Tabs & Back Arrow
 -- ============================================================================
 
--- Ensure ArtisanFrameTab1..30 always exist as hidden CheckButtons in _G so
--- Artisan.lua:479-480 never hits a nil 'tabButton' when the player has >6 professions.
-local function SuppressOriginalArtisanSideTabs()
-    if not ArtisanFrame then return end
+-- Off-screen host for Artisan's original ArtisanFrameTab0..30 frames.
+-- Leaving their native :Show(), :Hide(), :IsShown(), and :SetChecked() intact
+-- while keeping them off-screen with Alpha 0 prevents Artisan.lua:479-480 errors.
+local hiddenTabHost = CreateFrame("Frame", "ArtisanHiddenTabHost", UIParent)
+hiddenTabHost:SetWidth(1)
+hiddenTabHost:SetHeight(1)
+hiddenTabHost:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -5000, 5000)
+hiddenTabHost:SetAlpha(0)
+hiddenTabHost:Show()
 
-    for i = 1, 30 do
+local function BanishOriginalTab(f)
+    if not f or f.isArtisanCustomSideTab or f.isBanishedArtisanTab then return end
+    f.isBanishedArtisanTab = true
+    f:SetAlpha(0)
+    f:EnableMouse(false)
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", hiddenTabHost, "TOPLEFT", 0, 0)
+    f.SetPoint = function() end
+    f.ClearAllPoints = function() end
+end
+
+local function SuppressOriginalArtisanSideTabs()
+    local parent = ArtisanFrame or hiddenTabHost
+
+    for i = 0, 30 do
         local name = "ArtisanFrameTab" .. i
-        local f = _G[name]
+        local f = getglobal(name)
         if not f then
-            f = CreateFrame("CheckButton", name, ArtisanFrame, "SpellBookSkillLineTabTemplate")
+            f = CreateFrame("CheckButton", name, parent, "SpellBookSkillLineTabTemplate")
+            setglobal(name, f)
         end
-        if not f.isArtisanCustomSideTab then
-            f:Hide()
-            f.Show = function() end
-        end
+        BanishOriginalTab(f)
     end
 
     local otherPrefixes = {
@@ -606,15 +620,17 @@ local function SuppressOriginalArtisanSideTabs()
         "ArtisanFrameSideTab",
     }
     for _, prefix in ipairs(otherPrefixes) do
-        for i = 1, 30 do
-            local f = _G[prefix .. i]
-            if f and not f.isArtisanCustomSideTab then
-                f:Hide()
-                f.Show = function() end
+        for i = 0, 30 do
+            local f = getglobal(prefix .. i)
+            if f then
+                BanishOriginalTab(f)
             end
         end
     end
 end
+
+-- Run immediately at load time so ArtisanFrameTab0..30 exist before any event fires
+SuppressOriginalArtisanSideTabs()
 
 local function UpdateArtisanSideTabs()
     if not ArtisanFrame then return end
@@ -682,8 +698,7 @@ local function SetupArtisanFrameEnhancements()
 
     SuppressOriginalArtisanSideTabs()
 
-    -- 1. Bottom Tabs on ArtisanFrame (ArtisanFrame's visible bottom border is at y = 38 above BOTTOMLEFT,
-    --    so y = 23 places the tabs flush underneath the frame border)
+    -- 1. Bottom Tabs on ArtisanFrame
     local tab1, tab2 = CreateSpellBookStyleBottomTabs(
         ArtisanFrame,
         "ArtisanBottomTab",
@@ -840,12 +855,14 @@ local function UpdateBookWindow()
             slot.titleText:SetText(data.name)
             slot.subText:SetText(data.subTitle or "")
 
+            -- Always clear any hover highlight when refreshing or re-opening the book
+            slot.highlightTex:Hide()
+            slot.normalBorder:Show()
+
             if data.canOpenWindow then
-                slot.button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
                 slot.button:SetPushedTexture("Interface\\Buttons\\UI-Quickslot-Depress")
                 slot.titleText:SetTextColor(1.0, 0.82, 0.0)
             else
-                slot.button:SetHighlightTexture("")
                 slot.button:SetPushedTexture("")
                 slot.titleText:SetTextColor(0.85, 0.85, 0.85)
             end
@@ -869,6 +886,7 @@ local function UpdateBookWindow()
             slot.container:Show()
         else
             slot.profData = nil
+            slot.highlightTex:Hide()
             slot.container:Hide()
         end
     end
@@ -921,16 +939,16 @@ local function CreateArtisanBookFrame()
     botRight:SetPoint("TOPLEFT", topLeft, "BOTTOMRIGHT", 0, 0)
     botRight:SetTexture("Interface\\Spellbook\\UI-SpellbookPanel-BotRight")
 
-    -- Window Title (lowered 4px to -22 to sit centered in the title bar)
+    -- Window Title (lowered 2px more from -22 to -24)
     local title = f:CreateFontString("ArtisanBookFrameTitleText", "OVERLAY", "GameFontNormal")
-    title:SetPoint("CENTER", f, "TOP", 6, -22)
+    title:SetPoint("CENTER", f, "TOP", 6, -24)
     title:SetText("Professions")
 
-    -- Top-Right Close Button (raised 1px to -25)
+    -- Top-Right Close Button
     local closeBtn = CreateFrame("Button", "ArtisanBookFrameCloseButton", f, "UIPanelCloseButton")
     closeBtn:SetPoint("CENTER", f, "TOPRIGHT", -44, -25)
 
-    -- Bottom Tabs matching Blizzard Spellbook/Pet tabs (y = 61 on 512px Spellbook panel)
+    -- Bottom Tabs matching Blizzard Spellbook/Pet tabs
     local bTab1, bTab2 = CreateSpellBookStyleBottomTabs(
         f,
         "ArtisanBookFrameTab",
@@ -964,7 +982,7 @@ local function CreateArtisanBookFrame()
         container:SetHeight(52)
         container:SetPoint("TOPLEFT", f, "TOPLEFT", xOffset, yOffset)
 
-        -- 39x39 Spellbook Icon Button (enlarged 2px to fill the slot recess)
+        -- 39x39 Spellbook Icon Button
         local btn = CreateFrame("Button", "ArtisanBookButton" .. i, container)
         btn:SetWidth(39)
         btn:SetHeight(39)
@@ -979,6 +997,20 @@ local function CreateArtisanBookFrame()
 
         local iconTex = btn:CreateTexture(nil, "BORDER")
         iconTex:SetAllPoints(btn)
+
+        -- Standard Spellbook / ActionButton Grey Bevelled Border
+        local normalBorder = btn:CreateTexture(nil, "ARTWORK")
+        normalBorder:SetWidth(66)
+        normalBorder:SetHeight(66)
+        normalBorder:SetPoint("CENTER", btn, "CENTER", 0, -1)
+        normalBorder:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+
+        -- Explicit Lua-managed Hover Highlight (prevents C++ sticky highlight when hiding on click)
+        local highlightTex = btn:CreateTexture(nil, "OVERLAY")
+        highlightTex:SetAllPoints(btn)
+        highlightTex:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+        highlightTex:SetBlendMode("ADD")
+        highlightTex:Hide()
 
         -- 1. Profession Title
         local titleText = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1021,8 +1053,12 @@ local function CreateArtisanBookFrame()
 
         local slotIndex = i
         btn:SetScript("OnEnter", function()
-            local slotData = ArtisanMod.bookButtons[slotIndex].profData
+            local slotObj = ArtisanMod.bookButtons[slotIndex]
+            local slotData = slotObj and slotObj.profData
             if not slotData then return end
+            if slotData.canOpenWindow then
+                slotObj.highlightTex:Show()
+            end
             GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
             GameTooltip:SetText(slotData.name, 1.0, 1.0, 1.0)
             if slotData.subTitle and slotData.subTitle ~= "" then
@@ -1037,14 +1073,23 @@ local function CreateArtisanBookFrame()
         end)
 
         btn:SetScript("OnLeave", function()
+            local slotObj = ArtisanMod.bookButtons[slotIndex]
+            if slotObj then
+                slotObj.highlightTex:Hide()
+            end
             GameTooltip:Hide()
         end)
 
         btn:SetScript("OnClick", function()
-            local slotData = ArtisanMod.bookButtons[slotIndex].profData
+            local slotObj = ArtisanMod.bookButtons[slotIndex]
+            local slotData = slotObj and slotObj.profData
             if not slotData or not slotData.canOpenWindow then
                 return
             end
+
+            -- Explicitly clear hover highlight and tooltip before hiding the frame
+            slotObj.highlightTex:Hide()
+            GameTooltip:Hide()
 
             ArtisanMod.activeBottomTab = ArtisanMod.bookBottomTab
             if ArtisanFrame then
@@ -1059,6 +1104,8 @@ local function CreateArtisanBookFrame()
             container = container,
             button = btn,
             iconTexture = iconTex,
+            normalBorder = normalBorder,
+            highlightTex = highlightTex,
             titleText = titleText,
             subText = subText,
             statusBar = statusBar,
@@ -1132,6 +1179,7 @@ eventFrame:RegisterEvent("CRAFT_SHOW")
 eventFrame:RegisterEvent("CRAFT_UPDATE")
 
 eventFrame:SetScript("OnEvent", function()
+    SuppressOriginalArtisanSideTabs()
     if event == "PLAYER_ENTERING_WORLD" then
         SetupArtisanFrameEnhancements()
         CreateArtisanBookFrame()
