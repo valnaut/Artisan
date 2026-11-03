@@ -1,6 +1,6 @@
 ## Interface: 11200
 ## Title: Artisan |cffc79c6e-Spit-|r
-## Author: Otari98
+## Author: Otari98, valnaut
 ## Version: 3.1.0
 ## Notes: Compact window for your professions 3.1.0
 
@@ -9,3 +9,4 @@
 
 Artisan.xml
 ArtisanEditor.xml
+ArtisanBook.lua
