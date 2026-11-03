@@ -5,8 +5,8 @@
 -- ============================================================================
 
 local MAX_TABS = 10
-local SIDE_TAB_SCALE = 0.80
-local SIDE_TAB_GAP = -6
+local SIDE_TAB_SCALE = 0.78
+local SIDE_TAB_GAP = -13
 
 -- ClassicAPI Fast-Path Wrappers with Safe 1.12 Fallbacks
 local C_Spell = _G.C_Spell
@@ -49,7 +49,6 @@ local function SafeGetSpellTexture(spellID)
 end
 
 -- Find a spell in the player's 1.12 Spellbook by localized name
--- Returns: spellBookSlot, iconTexture, rankSubtext
 local spellBookCache = {}
 local function ScanSpellBookCache()
     for k in pairs(spellBookCache) do spellBookCache[k] = nil end
@@ -58,7 +57,6 @@ local function ScanSpellBookCache()
         local name, rank = GetSpellName(i, BOOKTYPE_SPELL)
         if not name then break end
         local tex = GetSpellTexture(i, BOOKTYPE_SPELL)
-        -- Keep highest rank slot encountered
         spellBookCache[strlower(name)] = {
             slot = i,
             name = name,
@@ -71,12 +69,9 @@ end
 
 -- Scan Character SkillLines (Preserves collapsed header states)
 local skillLineCacheByName = {}
-local skillLineCacheByID = {}
 local function ScanCharacterSkills()
     for k in pairs(skillLineCacheByName) do skillLineCacheByName[k] = nil end
-    for k in pairs(skillLineCacheByID) do skillLineCacheByID[k] = nil end
 
-    -- Expand collapsed headers temporarily only if needed, then restore in reverse
     local collapsedHeaders = {}
     local numSkills = GetNumSkillLines()
     for i = numSkills, 1, -1 do
@@ -91,17 +86,15 @@ local function ScanCharacterSkills()
     for i = 1, total do
         local skillName, isHeader, _, skillRank, numTempPoints, skillModifier, skillMaxRank = GetSkillLineInfo(i)
         if skillName and not isHeader then
-            local entry = {
+            skillLineCacheByName[strlower(skillName)] = {
                 name = skillName,
                 rank = skillRank or 0,
                 modifier = (skillModifier or 0) + (numTempPoints or 0),
                 maxRank = skillMaxRank or 0,
             }
-            skillLineCacheByName[strlower(skillName)] = entry
         end
     end
 
-    -- Restore any headers the player had collapsed
     for i = GetNumSkillLines(), 1, -1 do
         local skillName, isHeader, isExpanded = GetSkillLineInfo(i)
         if isHeader and isExpanded and collapsedHeaders[skillName] then
@@ -113,14 +106,8 @@ end
 -- ============================================================================
 -- Profession Definitions (Vanilla 1.12 + Turtle WoW)
 -- ============================================================================
--- category: 1 = Primary, 2 = Secondary / Class
--- canOpenWindow: true = shows on ArtisanFrame right-side tabs & clickable in Overview
---                false = passive tracker only in Overview, hidden from right-side tabs
-
 local PROFESSIONS = {
-    -- =========================
     -- PRIMARY PROFESSIONS (1)
-    -- =========================
     {
         key = "ALCHEMY",
         category = 1,
@@ -140,7 +127,6 @@ local PROFESSIONS = {
         spellIDs = { 9785, 3538, 3100, 2018 },
         icon = "Interface\\Icons\\Trade_BlackSmithing",
         canOpenWindow = true,
-        -- Checked in priority order: Masteries first, then Weaponsmith/Armorsmith
         specs = {
             { spellID = 17039, name = "Master Swordsmith" },
             { spellID = 17040, name = "Master Axesmith" },
@@ -210,7 +196,6 @@ local PROFESSIONS = {
         canOpenWindow = true,
     },
     {
-        -- Displays "Mining" skill bar in Overview, but opens "Smelting" window!
         key = "MINING",
         category = 1,
         skillLineID = 186,
@@ -221,7 +206,6 @@ local PROFESSIONS = {
         canOpenWindow = true,
     },
     {
-        -- Passive tracker only in Overview, hidden from right-side tabs
         key = "HERBALISM",
         category = 1,
         skillLineID = 182,
@@ -232,7 +216,6 @@ local PROFESSIONS = {
         canOpenWindow = false,
     },
     {
-        -- Passive tracker only in Overview, hidden from right-side tabs
         key = "SKINNING",
         category = 1,
         skillLineID = 393,
@@ -243,9 +226,7 @@ local PROFESSIONS = {
         canOpenWindow = false,
     },
 
-    -- =========================
     -- SECONDARY & CLASS (2)
-    -- =========================
     {
         key = "COOKING",
         category = 2,
@@ -278,7 +259,6 @@ local PROFESSIONS = {
         canOpenWindow = true,
     },
     {
-        -- Passive tracker only in Overview, hidden from right-side tabs
         key = "FISHING",
         category = 2,
         skillLineID = 356,
@@ -299,7 +279,6 @@ local PROFESSIONS = {
         canOpenWindow = true,
     },
     {
-        -- Hunter Beast Training (CraftFrame hook)
         key = "BEASTTRAINING",
         category = 2,
         skillLineID = nil,
@@ -311,7 +290,6 @@ local PROFESSIONS = {
         noSkillBar = true,
     },
     {
-        -- Passive tracker in Overview for Rogue Lockpicking
         key = "LOCKPICKING",
         category = 2,
         skillLineID = 633,
@@ -323,7 +301,6 @@ local PROFESSIONS = {
     },
 }
 
--- Derive training rank label from maxRank if subtext is empty
 local function GetRankTitleFromMax(maxRank)
     if not maxRank or maxRank <= 0 then return "" end
     if maxRank <= 75 then
@@ -337,7 +314,6 @@ local function GetRankTitleFromMax(maxRank)
     end
 end
 
--- Check if the player knows a specialization for this profession
 local function GetSpecializationTitle(profDef)
     if not profDef.specs then return nil end
     for _, spec in ipairs(profDef.specs) do
@@ -345,7 +321,6 @@ local function GetSpecializationTitle(profDef)
             local locName = SafeGetSpellName(spec.spellID)
             return locName or spec.name
         end
-        -- Fallback check in spellbook cache by name
         local cached = spellBookCache[strlower(spec.name)]
         if cached then
             return cached.name
@@ -354,9 +329,7 @@ local function GetSpecializationTitle(profDef)
     return nil
 end
 
--- Resolve live player data for a single profession definition
 local function ResolveProfessionData(profDef)
-    -- 1. Determine localized skill name
     local skillName = profDef.defaultName
     if profDef.skillLineID and C_SpellBook and C_SpellBook.GetSkillLineName then
         local dbcName = C_SpellBook.GetSkillLineName(profDef.skillLineID)
@@ -365,7 +338,6 @@ local function ResolveProfessionData(profDef)
         end
     end
 
-    -- 2. Look up rank/maxRank/modifier via ClassicAPI first, then Character Skills cache
     local curRank, maxRank, modifier
     if profDef.skillLineID and C_SpellBook and C_SpellBook.GetSkillLineRank then
         local r, m, mod = C_SpellBook.GetSkillLineRank(profDef.skillLineID)
@@ -392,7 +364,6 @@ local function ResolveProfessionData(profDef)
         end
     end
 
-    -- 3. Check spellbook for the crafting spell & icon
     local castName = profDef.castSpellName or skillName
     local sbEntry = spellBookCache[strlower(castName)]
     if not sbEntry and profDef.spellIDs then
@@ -411,7 +382,6 @@ local function ResolveProfessionData(profDef)
         end
     end
 
-    -- Special case for Beast Training (no skill bar in SkillFrame, learned as spell)
     if profDef.noSkillBar then
         if not sbEntry and not CheckSpellKnown(5149) then
             return nil
@@ -430,19 +400,15 @@ local function ResolveProfessionData(profDef)
         }
     end
 
-    -- If neither skill line nor spell is known, player doesn't have this profession
     if not curRank or maxRank == 0 then
         return nil
     end
 
-    -- If this is a crafting profession (e.g., Mining -> Smelting), verify the craft spell is known
     local canOpen = profDef.canOpenWindow
     if canOpen and not sbEntry then
-        -- Player might have learned Mining but not Smelting yet, or Survival without recipe book
         canOpen = false
     end
 
-    -- 4. Resolve subtitle: Specialization overrides Training Rank
     local specTitle = GetSpecializationTitle(profDef)
     local subTitle = specTitle
     if not subTitle or subTitle == "" then
@@ -473,10 +439,10 @@ end
 local ArtisanMod = {
     activeBottomTab = 1, -- 1 = Primary, 2 = Secondary (on ArtisanFrame)
     bookBottomTab = 1,   -- 1 = Primary, 2 = Secondary (on ArtisanBookFrame)
-    primaryAll = {},     -- All learned Primary professions (for Overview)
-    secondaryAll = {},   -- All learned Secondary/Class professions (for Overview)
-    primaryTabs = {},    -- Window-opening Primary professions (for right-side tabs)
-    secondaryTabs = {},  -- Window-opening Secondary professions (for right-side tabs)
+    primaryAll = {},
+    secondaryAll = {},
+    primaryTabs = {},
+    secondaryTabs = {},
     sideTabs = {},
     bookButtons = {},
 }
@@ -512,7 +478,6 @@ local function RefreshProfessionLists()
     end
 end
 
--- Helper to get currently open TradeSkill or Craft name
 local function GetCurrentlyOpenSkillName()
     if GetTradeSkillLine then
         local name = GetTradeSkillLine()
@@ -535,7 +500,6 @@ local function GetCurrentlyOpenSkillName()
     return nil
 end
 
--- Sync screen position between Overview (ArtisanBookFrame) and ArtisanFrame
 local function SyncWindowPosition(sourceFrame, targetFrame)
     if not sourceFrame or not targetFrame then return end
     local left = sourceFrame:GetLeft()
@@ -546,12 +510,25 @@ local function SyncWindowPosition(sourceFrame, targetFrame)
     end
 end
 
+-- Update SpellBookFrameTabButtonTemplate active/inactive visual state
+local function UpdateSpellBookStyleTabs(tab1, tab2, activeID)
+    if not tab1 or not tab2 then return end
+    if activeID == 1 then
+        tab1:Disable()
+        tab2:Enable()
+    else
+        tab1:Enable()
+        tab2:Disable()
+    end
+end
+
 -- ============================================================================
 -- Part 1 & 2: ArtisanFrame Bottom Tabs, 10 Scaled Right-Side Tabs & Back Arrow
 -- ============================================================================
 
--- Hide any built-in side tabs that original Artisan created so they don't overlap
-local function HideOriginalArtisanSideTabs()
+-- Keep original ArtisanFrameTab1..N alive in _G as CheckButtons so Artisan.lua:480
+-- never errors on :SetChecked(), while preventing them from ever showing on screen.
+local function SuppressOriginalArtisanSideTabs()
     if not ArtisanFrame then return end
     local prefixes = {
         "ArtisanFrameTab",
@@ -562,23 +539,9 @@ local function HideOriginalArtisanSideTabs()
     for _, prefix in ipairs(prefixes) do
         for i = 1, 16 do
             local f = _G[prefix .. i]
-            if f and f ~= ArtisanMod.bottomTab1 and f ~= ArtisanMod.bottomTab2 then
+            if f and not f.isArtisanCustomSideTab then
                 f:Hide()
-                f:SetScript("OnShow", function() this:Hide() end)
-            end
-        end
-    end
-    -- Also inspect unnamed/child CheckButtons anchored to TOPRIGHT of ArtisanFrame
-    local children = { ArtisanFrame:GetChildren() }
-    for _, child in ipairs(children) do
-        if child ~= ArtisanMod.bottomTab1 and child ~= ArtisanMod.bottomTab2 and not child.isArtisanCustomSideTab then
-            local objType = child:GetObjectType()
-            if objType == "CheckButton" then
-                local point, _, relPoint = child:GetPoint(1)
-                if point == "TOPLEFT" and relPoint == "TOPRIGHT" then
-                    child:Hide()
-                    child:SetScript("OnShow", function() this:Hide() end)
-                end
+                f.Show = function() end
             end
         end
     end
@@ -586,7 +549,7 @@ end
 
 local function UpdateArtisanSideTabs()
     if not ArtisanFrame then return end
-    HideOriginalArtisanSideTabs()
+    SuppressOriginalArtisanSideTabs()
 
     local list = (ArtisanMod.activeBottomTab == 1) and ArtisanMod.primaryTabs or ArtisanMod.secondaryTabs
     local activeSkill = GetCurrentlyOpenSkillName()
@@ -596,7 +559,6 @@ local function UpdateArtisanSideTabs()
         local tab = ArtisanMod.sideTabs[i]
         local data = list[i]
         if tab then
-            -- Keep identical scale across Primary and Secondary
             tab:SetScale(SIDE_TAB_SCALE)
             if data then
                 tab.profData = data
@@ -620,13 +582,10 @@ end
 
 local function SetArtisanBottomTab(tabID)
     ArtisanMod.activeBottomTab = tabID
-    if ArtisanFrame and ArtisanFrame.numTabs then
-        PanelTemplates_SetTab(ArtisanFrame, tabID)
-    end
+    UpdateSpellBookStyleTabs(ArtisanMod.bottomTab1, ArtisanMod.bottomTab2, tabID)
     UpdateArtisanSideTabs()
 end
 
--- Auto-detect whether the newly opened profession belongs to Primary or Secondary
 local function AutoSyncBottomTabToOpenSkill()
     RefreshProfessionLists()
     local activeSkill = GetCurrentlyOpenSkillName()
@@ -652,35 +611,51 @@ local function SetupArtisanFrameEnhancements()
     if not ArtisanFrame or ArtisanMod.isArtisanEnhanced then return end
     ArtisanMod.isArtisanEnhanced = true
 
-    -- 1. Create Bottom Tabs (Primary & Secondary) using stock CharacterFrameTabButtonTemplate
-    local tab1 = CreateFrame("Button", "ArtisanFrameBottomTab1", ArtisanFrame, "CharacterFrameTabButtonTemplate")
+    SuppressOriginalArtisanSideTabs()
+
+    -- 1. Bottom Tabs on ArtisanFrame using Spellbook/Pet tab artwork & template
+    -- Attach the bottom tab strip cropped from UI-SpellbookPanel-BotLeft right under ArtisanFrame's bottom border
+    local tabStrip = ArtisanFrame:CreateTexture("ArtisanFrameBottomTabStrip", "ARTWORK")
+    tabStrip:SetWidth(256)
+    tabStrip:SetHeight(38)
+    tabStrip:SetPoint("TOPLEFT", ArtisanFrame, "BOTTOMLEFT", 0, 32)
+    tabStrip:SetTexture("Interface\\Spellbook\\UI-SpellbookPanel-BotLeft")
+    tabStrip:SetTexCoord(0, 1, 179 / 256, 217 / 256)
+
+    local tab1 = CreateFrame("Button", "ArtisanBottomTab1", ArtisanFrame, "SpellBookFrameTabButtonTemplate")
     tab1:SetID(1)
     tab1:SetText("Primary")
-    tab1:SetPoint("TOPLEFT", ArtisanFrame, "BOTTOMLEFT", 11, 2)
+    tab1:ClearAllPoints()
+    tab1:SetPoint("CENTER", tabStrip, "BOTTOMLEFT", 79, 22)
+    tab1:SetScript("OnEnter", nil)
+    tab1:SetScript("OnLeave", nil)
     tab1:SetScript("OnClick", function()
-        PlaySound("igCharacterInfoTab")
+        PlaySound("igAbiliityPageTurn")
         SetArtisanBottomTab(1)
     end)
 
-    local tab2 = CreateFrame("Button", "ArtisanFrameBottomTab2", ArtisanFrame, "CharacterFrameTabButtonTemplate")
+    local tab2 = CreateFrame("Button", "ArtisanBottomTab2", ArtisanFrame, "SpellBookFrameTabButtonTemplate")
     tab2:SetID(2)
     tab2:SetText("Secondary")
-    tab2:SetPoint("LEFT", tab1, "RIGHT", -15, 0)
+    tab2:ClearAllPoints()
+    tab2:SetPoint("LEFT", tab1, "RIGHT", -20, 0)
+    tab2:SetScript("OnEnter", nil)
+    tab2:SetScript("OnLeave", nil)
     tab2:SetScript("OnClick", function()
-        PlaySound("igCharacterInfoTab")
+        PlaySound("igAbiliityPageTurn")
         SetArtisanBottomTab(2)
     end)
 
     ArtisanMod.bottomTab1 = tab1
     ArtisanMod.bottomTab2 = tab2
+    UpdateSpellBookStyleTabs(tab1, tab2, 1)
 
-    -- Register with Blizzard PanelTemplates so stock UI and pfUI Nostalgia skin them properly
-    _G["ArtisanFrameTab1"] = tab1
-    _G["ArtisanFrameTab2"] = tab2
-    PanelTemplates_SetNumTabs(ArtisanFrame, 2)
-    PanelTemplates_SetTab(ArtisanFrame, 1)
+    -- 2. Unscaled anchor frame pinned flush to ArtisanFrame's visible right edge (-33px from TOPRIGHT)
+    local sideAnchor = CreateFrame("Frame", "ArtisanSideTabAnchor", ArtisanFrame)
+    sideAnchor:SetWidth(1)
+    sideAnchor:SetHeight(1)
+    sideAnchor:SetPoint("TOPLEFT", ArtisanFrame, "TOPRIGHT", -33, -28)
 
-    -- 2. Create 10 Scaled Right-Side Tabs aligned flush to ArtisanFrame's right side
     for i = 1, MAX_TABS do
         local sideTab = CreateFrame("CheckButton", "ArtisanCustomSideTab" .. i, ArtisanFrame, "SpellBookSkillLineTabTemplate")
         sideTab.isArtisanCustomSideTab = true
@@ -689,8 +664,7 @@ local function SetupArtisanFrameEnhancements()
         sideTab:ClearAllPoints()
 
         if i == 1 then
-            -- Flush against the right edge of ArtisanFrame
-            sideTab:SetPoint("TOPLEFT", ArtisanFrame, "TOPRIGHT", 0, -36)
+            sideTab:SetPoint("TOPLEFT", sideAnchor, "TOPLEFT", 0, 0)
         else
             sideTab:SetPoint("TOPLEFT", ArtisanMod.sideTabs[i - 1], "BOTTOMLEFT", 0, SIDE_TAB_GAP)
         end
@@ -729,10 +703,9 @@ local function SetupArtisanFrameEnhancements()
         ArtisanMod.sideTabs[i] = sideTab
     end
 
-    -- 3. Replace the Top-Right "X" Close Button with a Back Arrow to return to Overview
+    -- 3. Scale down and replace the Top-Right Close Button with a Back Arrow
     local closeBtn = _G["ArtisanFrameCloseButton"]
     if not closeBtn then
-        -- Locate the close button among children if unnamed
         local children = { ArtisanFrame:GetChildren() }
         for _, child in ipairs(children) do
             if child:GetObjectType() == "Button" then
@@ -746,6 +719,16 @@ local function SetupArtisanFrameEnhancements()
     end
 
     if closeBtn then
+        -- Preserve exact center inside the top-right box while shrinking from 32x32 to 20x20
+        local cx, cy = closeBtn:GetCenter()
+        local rx, ry = ArtisanFrame:GetRight(), ArtisanFrame:GetTop()
+        closeBtn:SetWidth(20)
+        closeBtn:SetHeight(20)
+        if cx and cy and rx and ry then
+            closeBtn:ClearAllPoints()
+            closeBtn:SetPoint("CENTER", ArtisanFrame, "TOPRIGHT", cx - rx, cy - ry)
+        end
+
         closeBtn:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up")
         closeBtn:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Down")
         closeBtn:SetDisabledTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Disabled")
@@ -774,7 +757,6 @@ local function SetupArtisanFrameEnhancements()
         end)
     end
 
-    -- Hook OnShow of ArtisanFrame to sync tabs & close Overview window seamlessly
     local origOnShow = ArtisanFrame:GetScript("OnShow")
     ArtisanFrame:SetScript("OnShow", function()
         if origOnShow then origOnShow() end
@@ -784,12 +766,6 @@ local function SetupArtisanFrameEnhancements()
         end
         AutoSyncBottomTabToOpenSkill()
     end)
-
-    -- Apply pfUI Nostalgia skinning hooks if pfUI is active
-    if _G.pfUI and pfUI.api and pfUI.api.SkinTab then
-        pfUI.api.SkinTab(tab1)
-        pfUI.api.SkinTab(tab2)
-    end
 end
 
 -- ============================================================================
@@ -800,7 +776,7 @@ local function UpdateBookWindow()
     if not ArtisanBookFrame or not ArtisanBookFrame:IsShown() then return end
 
     RefreshProfessionLists()
-    PanelTemplates_SetTab(ArtisanBookFrame, ArtisanMod.bookBottomTab)
+    UpdateSpellBookStyleTabs(ArtisanMod.bookTab1, ArtisanMod.bookTab2, ArtisanMod.bookBottomTab)
 
     local list = (ArtisanMod.bookBottomTab == 1) and ArtisanMod.primaryAll or ArtisanMod.secondaryAll
 
@@ -813,22 +789,17 @@ local function UpdateBookWindow()
             slot.titleText:SetText(data.name)
             slot.subText:SetText(data.subTitle or "")
 
-            -- Active crafting profession vs. Passive gathering tracker
+            -- Active crafting profession vs. Passive gathering tracker (no stuck hover overlay)
             if data.canOpenWindow then
-                slot.button:EnableMouse(true)
-                slot.normalBorder:SetTexture("Interface\\Buttons\\UI-Quickslot2")
-                slot.normalBorder:SetWidth(64)
-                slot.normalBorder:SetHeight(64)
-                slot.passiveBorder:Hide()
-                slot.titleText:SetTextColor(1.0, 0.82, 0.0) -- Standard Normal Gold
+                slot.button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+                slot.button:SetPushedTexture("Interface\\Buttons\\UI-Quickslot-Depress")
+                slot.titleText:SetTextColor(1.0, 0.82, 0.0)
             else
-                slot.button:EnableMouse(true) -- Keep mouse for tooltip only
-                slot.normalBorder:SetTexture("")
-                slot.passiveBorder:Show()
+                slot.button:SetHighlightTexture("")
+                slot.button:SetPushedTexture("")
                 slot.titleText:SetTextColor(0.85, 0.85, 0.85)
             end
 
-            -- Skill Progress Bar & Blizzard SkillFrame-style Modifier Text
             if data.noSkillBar then
                 slot.statusBar:Hide()
             else
@@ -836,8 +807,6 @@ local function UpdateBookWindow()
                 slot.statusBar:SetMinMaxValues(0, data.maxRank > 0 and data.maxRank or 1)
                 slot.statusBar:SetValue(data.rank)
 
-                -- Format identically to Blizzard Character SkillFrame:
-                -- Base rank/maxRank stays white; only the +n modifier is colored green
                 if data.modifier > 0 then
                     slot.statusText:SetText(format("%d (%s+%d|r) / %d", data.rank, GREEN_FONT_COLOR_CODE, data.modifier, data.maxRank))
                 elseif data.modifier < 0 then
@@ -869,10 +838,9 @@ local function CreateArtisanBookFrame()
     f:SetScript("OnDragStop", function() this:StopMovingOrSizing() end)
     f:Hide()
 
-    -- Allow closing with ESC
     table.insert(UISpecialFrames, "ArtisanBookFrame")
 
-    -- Stock SpellBook Portrait & 4-Quadrant Parchment Textures
+    -- Stock 1.12 SpellBook Portrait & 4-Quadrant Panel Textures
     local portrait = f:CreateTexture("ArtisanBookFramePortrait", "BACKGROUND")
     portrait:SetWidth(58)
     portrait:SetHeight(58)
@@ -883,121 +851,111 @@ local function CreateArtisanBookFrame()
     topLeft:SetWidth(256)
     topLeft:SetHeight(256)
     topLeft:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
-    topLeft:SetTexture("Interface\\Spellbook\\UI-SpellBook-TopLeft")
+    topLeft:SetTexture("Interface\\Spellbook\\UI-SpellbookPanel-TopLeft")
 
     local topRight = f:CreateTexture(nil, "ARTWORK")
     topRight:SetWidth(128)
     topRight:SetHeight(256)
     topRight:SetPoint("TOPLEFT", topLeft, "TOPRIGHT", 0, 0)
-    topRight:SetTexture("Interface\\Spellbook\\UI-SpellBook-TopRight")
+    topRight:SetTexture("Interface\\Spellbook\\UI-SpellbookPanel-TopRight")
 
     local botLeft = f:CreateTexture(nil, "ARTWORK")
     botLeft:SetWidth(256)
     botLeft:SetHeight(256)
     botLeft:SetPoint("TOPLEFT", topLeft, "BOTTOMLEFT", 0, 0)
-    botLeft:SetTexture("Interface\\Spellbook\\UI-SpellBook-BotLeft")
+    botLeft:SetTexture("Interface\\Spellbook\\UI-SpellbookPanel-BotLeft")
 
     local botRight = f:CreateTexture(nil, "ARTWORK")
     botRight:SetWidth(128)
     botRight:SetHeight(256)
     botRight:SetPoint("TOPLEFT", topLeft, "BOTTOMRIGHT", 0, 0)
-    botRight:SetTexture("Interface\\Spellbook\\UI-SpellBook-BotRight")
+    botRight:SetTexture("Interface\\Spellbook\\UI-SpellbookPanel-BotRight")
 
     -- Window Title
     local title = f:CreateFontString("ArtisanBookFrameTitleText", "OVERLAY", "GameFontNormal")
     title:SetPoint("CENTER", f, "TOP", 6, -18)
     title:SetText("Professions")
 
-    -- Top-Right Close Button (Standard X on Overview Window)
+    -- Top-Right Close Button
     local closeBtn = CreateFrame("Button", "ArtisanBookFrameCloseButton", f, "UIPanelCloseButton")
     closeBtn:SetPoint("CENTER", f, "TOPRIGHT", -44, -26)
 
-    -- Bottom Tabs: Primary and Secondary
-    local bTab1 = CreateFrame("Button", "ArtisanBookFrameTab1", f, "CharacterFrameTabButtonTemplate")
+    -- Bottom Tabs matching Blizzard Spellbook/Pet tabs (aligned over UI-SpellbookPanel-BotLeft)
+    local bTab1 = CreateFrame("Button", "ArtisanBookFrameTab1", f, "SpellBookFrameTabButtonTemplate")
     bTab1:SetID(1)
     bTab1:SetText("Primary")
-    bTab1:SetPoint("CENTER", f, "BOTTOMLEFT", 60, 61)
+    bTab1:ClearAllPoints()
+    bTab1:SetPoint("CENTER", f, "BOTTOMLEFT", 79, 61)
+    bTab1:SetScript("OnEnter", nil)
+    bTab1:SetScript("OnLeave", nil)
     bTab1:SetScript("OnClick", function()
-        PlaySound("igCharacterInfoTab")
+        PlaySound("igAbiliityPageTurn")
         ArtisanMod.bookBottomTab = 1
         UpdateBookWindow()
     end)
 
-    local bTab2 = CreateFrame("Button", "ArtisanBookFrameTab2", f, "CharacterFrameTabButtonTemplate")
+    local bTab2 = CreateFrame("Button", "ArtisanBookFrameTab2", f, "SpellBookFrameTabButtonTemplate")
     bTab2:SetID(2)
     bTab2:SetText("Secondary")
-    bTab2:SetPoint("LEFT", bTab1, "RIGHT", -15, 0)
+    bTab2:ClearAllPoints()
+    bTab2:SetPoint("LEFT", bTab1, "RIGHT", -20, 0)
+    bTab2:SetScript("OnEnter", nil)
+    bTab2:SetScript("OnLeave", nil)
     bTab2:SetScript("OnClick", function()
-        PlaySound("igCharacterInfoTab")
+        PlaySound("igAbiliityPageTurn")
         ArtisanMod.bookBottomTab = 2
         UpdateBookWindow()
     end)
 
-    PanelTemplates_SetNumTabs(f, 2)
-    PanelTemplates_SetTab(f, 1)
+    ArtisanMod.bookTab1 = bTab1
+    ArtisanMod.bookTab2 = bTab2
+    UpdateSpellBookStyleTabs(bTab1, bTab2, 1)
 
-    -- 2 Columns x 5 Rows Grid (10 Professions Max per Tab)
+    -- 2 Columns x 5 Rows Grid aligned to SpellBookFrame parchment pages
     for i = 1, MAX_TABS do
-        local col = math.mod(i - 1, 2)       -- 0 = left column, 1 = right column
+        local col = math.mod(i - 1, 2)       -- 0 = left page, 1 = right page
         local row = math.floor((i - 1) / 2)  -- 0..4
 
-        local xOffset = 34 + (col * 150)
-        local yOffset = -82 - (row * 64)
+        local xOffset = (col == 0) and 34 or 191
+        local yOffset = -85 - (row * 60)
 
         local container = CreateFrame("Frame", "ArtisanBookSlot" .. i, f)
-        container:SetWidth(144)
-        container:SetHeight(56)
+        container:SetWidth(142)
+        container:SetHeight(52)
         container:SetPoint("TOPLEFT", f, "TOPLEFT", xOffset, yOffset)
 
-        -- Empty Slot Background (matches SpellBookButtonTemplate parchment slot)
-        local slotBg = container:CreateTexture(nil, "BACKGROUND")
-        slotBg:SetWidth(64)
-        slotBg:SetHeight(64)
-        slotBg:SetPoint("TOPLEFT", container, "TOPLEFT", -13, 13)
-        slotBg:SetTexture("Interface\\Spellbook\\UI-Spellbook-SpellBackground")
-
-        -- 37x37 Spellbook-sized Icon Button
+        -- 37x37 Spellbook Icon Button
         local btn = CreateFrame("Button", "ArtisanBookButton" .. i, container)
         btn:SetWidth(37)
         btn:SetHeight(37)
         btn:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
 
+        -- Empty Slot Background aligned at (-3, 3) to match Blizzard's SpellButtonTemplate
+        local slotBg = btn:CreateTexture(nil, "BACKGROUND")
+        slotBg:SetWidth(64)
+        slotBg:SetHeight(64)
+        slotBg:SetPoint("TOPLEFT", btn, "TOPLEFT", -3, 3)
+        slotBg:SetTexture("Interface\\Spellbook\\UI-Spellbook-SpellBackground")
+
         local iconTex = btn:CreateTexture(nil, "BORDER")
         iconTex:SetAllPoints(btn)
-
-        local normalBorder = btn:CreateTexture(nil, "ARTWORK")
-        normalBorder:SetWidth(64)
-        normalBorder:SetHeight(64)
-        normalBorder:SetPoint("CENTER", btn, "CENTER", 0, -1)
-        normalBorder:SetTexture("Interface\\Buttons\\UI-Quickslot2")
-
-        -- Passive Border for Gathering Professions (Herbalism, Skinning, Fishing, Lockpicking)
-        local passiveBorder = btn:CreateTexture(nil, "OVERLAY")
-        passiveBorder:SetWidth(43)
-        passiveBorder:SetHeight(43)
-        passiveBorder:SetPoint("CENTER", btn, "CENTER", 0, 0)
-        passiveBorder:SetTexture("Interface\\Spellbook\\Spellbook-PassiveBorder")
-        passiveBorder:Hide()
-
-        btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-        btn:SetPushedTexture("Interface\\Buttons\\UI-Quickslot-Depress")
 
         -- 1. Profession Title
         local titleText = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         titleText:SetPoint("TOPLEFT", btn, "TOPRIGHT", 6, 1)
-        titleText:SetWidth(98)
+        titleText:SetWidth(96)
         titleText:SetJustifyH("LEFT")
 
         -- 2. Training Level / Specialization Subtitle
         local subText = container:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         subText:SetPoint("TOPLEFT", titleText, "BOTTOMLEFT", 0, -1)
-        subText:SetWidth(98)
+        subText:SetWidth(96)
         subText:SetJustifyH("LEFT")
-        subText:SetTextColor(0.85, 0.75, 0.55)
+        subText:SetTextColor(0.35, 0.20, 0.05) -- Dark parchment subtext color (readable on Spellbook background)
 
         -- 3. Progress Bar with Current / Max (+Modifier)
         local statusBar = CreateFrame("StatusBar", "ArtisanBookStatusBar" .. i, container)
-        statusBar:SetWidth(96)
+        statusBar:SetWidth(92)
         statusBar:SetHeight(12)
         statusBar:SetPoint("TOPLEFT", subText, "BOTTOMLEFT", 0, -3)
         statusBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
@@ -1005,7 +963,7 @@ local function CreateArtisanBookFrame()
 
         local barBg = statusBar:CreateTexture(nil, "BACKGROUND")
         barBg:SetAllPoints(statusBar)
-        barBg:SetTexture(0.05, 0.05, 0.05, 0.75)
+        barBg:SetTexture(0.05, 0.05, 0.05, 0.80)
 
         local barBorder = CreateFrame("Frame", nil, statusBar)
         barBorder:SetPoint("TOPLEFT", statusBar, "TOPLEFT", -2, 2)
@@ -1019,7 +977,6 @@ local function CreateArtisanBookFrame()
         local statusText = statusBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         statusText:SetPoint("CENTER", statusBar, "CENTER", 0, 0)
 
-        -- Button Click & Tooltip Handlers
         local slotIndex = i
         btn:SetScript("OnEnter", function()
             local slotData = ArtisanMod.bookButtons[slotIndex].profData
@@ -1043,13 +1000,10 @@ local function CreateArtisanBookFrame()
 
         btn:SetScript("OnClick", function()
             local slotData = ArtisanMod.bookButtons[slotIndex].profData
-            if not slotData then return end
-            if not slotData.canOpenWindow then
-                -- Passive gathering tracker: do not open a window
+            if not slotData or not slotData.canOpenWindow then
                 return
             end
 
-            -- Sync position & active tab, close Overview, and open the clicked profession in ArtisanFrame
             ArtisanMod.activeBottomTab = ArtisanMod.bookBottomTab
             if ArtisanFrame then
                 SyncWindowPosition(ArtisanBookFrame, ArtisanFrame)
@@ -1063,8 +1017,6 @@ local function CreateArtisanBookFrame()
             container = container,
             button = btn,
             iconTexture = iconTex,
-            normalBorder = normalBorder,
-            passiveBorder = passiveBorder,
             titleText = titleText,
             subText = subText,
             statusBar = statusBar,
@@ -1080,12 +1032,6 @@ local function CreateArtisanBookFrame()
     f:SetScript("OnHide", function()
         PlaySound("igSpellBookClose")
     end)
-
-    -- Apply pfUI Nostalgia skinning to bottom tabs if available
-    if _G.pfUI and pfUI.api and pfUI.api.SkinTab then
-        pfUI.api.SkinTab(bTab1)
-        pfUI.api.SkinTab(bTab2)
-    end
 
     return f
 end
@@ -1130,7 +1076,7 @@ local function HookArtisanSlashCommand()
 end
 
 -- ============================================================================
--- Event Driver (Zero OnUpdate Polling)
+-- Event Driver
 -- ============================================================================
 
 local eventFrame = CreateFrame("Frame", "ArtisanBookEventFrame")
