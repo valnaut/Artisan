@@ -510,34 +510,103 @@ local function SyncWindowPosition(sourceFrame, targetFrame)
     end
 end
 
+-- Create a pair of Spellbook/Pet style bottom tabs (explicitly shown since SpellBookFrameTabButtonTemplate is hidden="true")
+local function CreateSpellBookStyleBottomTabs(parent, namePrefix, yOffsetFromBottomLeft, onClickTab1, onClickTab2)
+    local tab1 = CreateFrame("Button", namePrefix .. "1", parent, "SpellBookFrameTabButtonTemplate")
+    tab1:SetID(1)
+    tab1:SetText("Primary")
+    tab1:ClearAllPoints()
+    tab1:SetPoint("CENTER", parent, "BOTTOMLEFT", 79, yOffsetFromBottomLeft)
+    tab1:SetScript("OnEnter", nil)
+    tab1:SetScript("OnLeave", nil)
+    tab1:SetScript("OnClick", onClickTab1)
+
+    local tab2 = CreateFrame("Button", namePrefix .. "2", parent, "SpellBookFrameTabButtonTemplate")
+    tab2:SetID(2)
+    tab2:SetText("Secondary")
+    tab2:ClearAllPoints()
+    tab2:SetPoint("LEFT", tab1, "RIGHT", -20, 0)
+    tab2:SetScript("OnEnter", nil)
+    tab2:SetScript("OnLeave", nil)
+    tab2:SetScript("OnClick", onClickTab2)
+
+    -- Copy exact textures from Blizzard's SpellBookFrameTabButton1 & SpellBookFrameTabButton2 if present
+    if _G.SpellBookFrameTabButton1 then
+        local norm1 = SpellBookFrameTabButton1:GetNormalTexture()
+        local dis1 = SpellBookFrameTabButton1:GetDisabledTexture()
+        if norm1 and norm1:GetTexture() and tab1:GetNormalTexture() then
+            tab1:GetNormalTexture():SetTexture(norm1:GetTexture())
+        end
+        if dis1 and dis1:GetTexture() and tab1:GetDisabledTexture() then
+            tab1:GetDisabledTexture():SetTexture(dis1:GetTexture())
+        end
+    end
+    if _G.SpellBookFrameTabButton2 then
+        local norm2 = SpellBookFrameTabButton2:GetNormalTexture()
+        local dis2 = SpellBookFrameTabButton2:GetDisabledTexture()
+        if norm2 and norm2:GetTexture() and tab2:GetNormalTexture() then
+            tab2:GetNormalTexture():SetTexture(norm2:GetTexture())
+        end
+        if dis2 and dis2:GetTexture() and tab2:GetDisabledTexture() then
+            tab2:GetDisabledTexture():SetTexture(dis2:GetTexture())
+        end
+    end
+
+    -- Critical: SpellBookFrameTabButtonTemplate has hidden="true" in XML, so explicitly Show both
+    tab1:Show()
+    tab2:Show()
+
+    return tab1, tab2
+end
+
 -- Update SpellBookFrameTabButtonTemplate active/inactive visual state
 local function UpdateSpellBookStyleTabs(tab1, tab2, activeID)
     if not tab1 or not tab2 then return end
+    local hl1 = _G[tab1:GetName() .. "HighlightTexture"]
+    local hl2 = _G[tab2:GetName() .. "HighlightTexture"]
     if activeID == 1 then
         tab1:Disable()
+        if hl1 then hl1:Hide() end
         tab2:Enable()
+        if hl2 then hl2:Show() end
     else
         tab1:Enable()
+        if hl1 then hl1:Show() end
         tab2:Disable()
+        if hl2 then hl2:Hide() end
     end
+    tab1:Show()
+    tab2:Show()
 end
 
 -- ============================================================================
 -- Part 1 & 2: ArtisanFrame Bottom Tabs, 10 Scaled Right-Side Tabs & Back Arrow
 -- ============================================================================
 
--- Keep original ArtisanFrameTab1..N alive in _G as CheckButtons so Artisan.lua:480
--- never errors on :SetChecked(), while preventing them from ever showing on screen.
+-- Ensure ArtisanFrameTab1..30 always exist as hidden CheckButtons in _G so
+-- Artisan.lua:479-480 never hits a nil 'tabButton' when the player has >6 professions.
 local function SuppressOriginalArtisanSideTabs()
     if not ArtisanFrame then return end
-    local prefixes = {
-        "ArtisanFrameTab",
+
+    for i = 1, 30 do
+        local name = "ArtisanFrameTab" .. i
+        local f = _G[name]
+        if not f then
+            f = CreateFrame("CheckButton", name, ArtisanFrame, "SpellBookSkillLineTabTemplate")
+        end
+        if not f.isArtisanCustomSideTab then
+            f:Hide()
+            f.Show = function() end
+        end
+    end
+
+    local otherPrefixes = {
         "ArtisanTab",
         "ArtisanSkillTab",
         "ArtisanFrameSideTab",
     }
-    for _, prefix in ipairs(prefixes) do
-        for i = 1, 16 do
+    for _, prefix in ipairs(otherPrefixes) do
+        for i = 1, 30 do
             local f = _G[prefix .. i]
             if f and not f.isArtisanCustomSideTab then
                 f:Hide()
@@ -613,38 +682,21 @@ local function SetupArtisanFrameEnhancements()
 
     SuppressOriginalArtisanSideTabs()
 
-    -- 1. Bottom Tabs on ArtisanFrame using Spellbook/Pet tab artwork & template
-    -- Attach the bottom tab strip cropped from UI-SpellbookPanel-BotLeft right under ArtisanFrame's bottom border
-    local tabStrip = ArtisanFrame:CreateTexture("ArtisanFrameBottomTabStrip", "ARTWORK")
-    tabStrip:SetWidth(256)
-    tabStrip:SetHeight(38)
-    tabStrip:SetPoint("TOPLEFT", ArtisanFrame, "BOTTOMLEFT", 0, 32)
-    tabStrip:SetTexture("Interface\\Spellbook\\UI-SpellbookPanel-BotLeft")
-    tabStrip:SetTexCoord(0, 1, 179 / 256, 217 / 256)
-
-    local tab1 = CreateFrame("Button", "ArtisanBottomTab1", ArtisanFrame, "SpellBookFrameTabButtonTemplate")
-    tab1:SetID(1)
-    tab1:SetText("Primary")
-    tab1:ClearAllPoints()
-    tab1:SetPoint("CENTER", tabStrip, "BOTTOMLEFT", 79, 22)
-    tab1:SetScript("OnEnter", nil)
-    tab1:SetScript("OnLeave", nil)
-    tab1:SetScript("OnClick", function()
-        PlaySound("igAbiliityPageTurn")
-        SetArtisanBottomTab(1)
-    end)
-
-    local tab2 = CreateFrame("Button", "ArtisanBottomTab2", ArtisanFrame, "SpellBookFrameTabButtonTemplate")
-    tab2:SetID(2)
-    tab2:SetText("Secondary")
-    tab2:ClearAllPoints()
-    tab2:SetPoint("LEFT", tab1, "RIGHT", -20, 0)
-    tab2:SetScript("OnEnter", nil)
-    tab2:SetScript("OnLeave", nil)
-    tab2:SetScript("OnClick", function()
-        PlaySound("igAbiliityPageTurn")
-        SetArtisanBottomTab(2)
-    end)
+    -- 1. Bottom Tabs on ArtisanFrame (ArtisanFrame's visible bottom border is at y = 38 above BOTTOMLEFT,
+    --    so y = 23 places the tabs flush underneath the frame border)
+    local tab1, tab2 = CreateSpellBookStyleBottomTabs(
+        ArtisanFrame,
+        "ArtisanBottomTab",
+        23,
+        function()
+            PlaySound("igAbiliityPageTurn")
+            SetArtisanBottomTab(1)
+        end,
+        function()
+            PlaySound("igAbiliityPageTurn")
+            SetArtisanBottomTab(2)
+        end
+    )
 
     ArtisanMod.bottomTab1 = tab1
     ArtisanMod.bottomTab2 = tab2
@@ -703,7 +755,7 @@ local function SetupArtisanFrameEnhancements()
         ArtisanMod.sideTabs[i] = sideTab
     end
 
-    -- 3. Scale down and replace the Top-Right Close Button with a Back Arrow
+    -- 3. Resize and replace the Top-Right Close Button with a 23x23 Back Arrow
     local closeBtn = _G["ArtisanFrameCloseButton"]
     if not closeBtn then
         local children = { ArtisanFrame:GetChildren() }
@@ -719,11 +771,10 @@ local function SetupArtisanFrameEnhancements()
     end
 
     if closeBtn then
-        -- Preserve exact center inside the top-right box while shrinking from 32x32 to 20x20
         local cx, cy = closeBtn:GetCenter()
         local rx, ry = ArtisanFrame:GetRight(), ArtisanFrame:GetTop()
-        closeBtn:SetWidth(20)
-        closeBtn:SetHeight(20)
+        closeBtn:SetWidth(23)
+        closeBtn:SetHeight(23)
         if cx and cy and rx and ry then
             closeBtn:ClearAllPoints()
             closeBtn:SetPoint("CENTER", ArtisanFrame, "TOPRIGHT", cx - rx, cy - ry)
@@ -789,7 +840,6 @@ local function UpdateBookWindow()
             slot.titleText:SetText(data.name)
             slot.subText:SetText(data.subTitle or "")
 
-            -- Active crafting profession vs. Passive gathering tracker (no stuck hover overlay)
             if data.canOpenWindow then
                 slot.button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
                 slot.button:SetPushedTexture("Interface\\Buttons\\UI-Quickslot-Depress")
@@ -871,41 +921,31 @@ local function CreateArtisanBookFrame()
     botRight:SetPoint("TOPLEFT", topLeft, "BOTTOMRIGHT", 0, 0)
     botRight:SetTexture("Interface\\Spellbook\\UI-SpellbookPanel-BotRight")
 
-    -- Window Title
+    -- Window Title (lowered 4px to -22 to sit centered in the title bar)
     local title = f:CreateFontString("ArtisanBookFrameTitleText", "OVERLAY", "GameFontNormal")
-    title:SetPoint("CENTER", f, "TOP", 6, -18)
+    title:SetPoint("CENTER", f, "TOP", 6, -22)
     title:SetText("Professions")
 
-    -- Top-Right Close Button
+    -- Top-Right Close Button (raised 1px to -25)
     local closeBtn = CreateFrame("Button", "ArtisanBookFrameCloseButton", f, "UIPanelCloseButton")
-    closeBtn:SetPoint("CENTER", f, "TOPRIGHT", -44, -26)
+    closeBtn:SetPoint("CENTER", f, "TOPRIGHT", -44, -25)
 
-    -- Bottom Tabs matching Blizzard Spellbook/Pet tabs (aligned over UI-SpellbookPanel-BotLeft)
-    local bTab1 = CreateFrame("Button", "ArtisanBookFrameTab1", f, "SpellBookFrameTabButtonTemplate")
-    bTab1:SetID(1)
-    bTab1:SetText("Primary")
-    bTab1:ClearAllPoints()
-    bTab1:SetPoint("CENTER", f, "BOTTOMLEFT", 79, 61)
-    bTab1:SetScript("OnEnter", nil)
-    bTab1:SetScript("OnLeave", nil)
-    bTab1:SetScript("OnClick", function()
-        PlaySound("igAbiliityPageTurn")
-        ArtisanMod.bookBottomTab = 1
-        UpdateBookWindow()
-    end)
-
-    local bTab2 = CreateFrame("Button", "ArtisanBookFrameTab2", f, "SpellBookFrameTabButtonTemplate")
-    bTab2:SetID(2)
-    bTab2:SetText("Secondary")
-    bTab2:ClearAllPoints()
-    bTab2:SetPoint("LEFT", bTab1, "RIGHT", -20, 0)
-    bTab2:SetScript("OnEnter", nil)
-    bTab2:SetScript("OnLeave", nil)
-    bTab2:SetScript("OnClick", function()
-        PlaySound("igAbiliityPageTurn")
-        ArtisanMod.bookBottomTab = 2
-        UpdateBookWindow()
-    end)
+    -- Bottom Tabs matching Blizzard Spellbook/Pet tabs (y = 61 on 512px Spellbook panel)
+    local bTab1, bTab2 = CreateSpellBookStyleBottomTabs(
+        f,
+        "ArtisanBookFrameTab",
+        61,
+        function()
+            PlaySound("igAbiliityPageTurn")
+            ArtisanMod.bookBottomTab = 1
+            UpdateBookWindow()
+        end,
+        function()
+            PlaySound("igAbiliityPageTurn")
+            ArtisanMod.bookBottomTab = 2
+            UpdateBookWindow()
+        end
+    )
 
     ArtisanMod.bookTab1 = bTab1
     ArtisanMod.bookTab2 = bTab2
@@ -924,17 +964,17 @@ local function CreateArtisanBookFrame()
         container:SetHeight(52)
         container:SetPoint("TOPLEFT", f, "TOPLEFT", xOffset, yOffset)
 
-        -- 37x37 Spellbook Icon Button
+        -- 39x39 Spellbook Icon Button (enlarged 2px to fill the slot recess)
         local btn = CreateFrame("Button", "ArtisanBookButton" .. i, container)
-        btn:SetWidth(37)
-        btn:SetHeight(37)
+        btn:SetWidth(39)
+        btn:SetHeight(39)
         btn:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
 
-        -- Empty Slot Background aligned at (-3, 3) to match Blizzard's SpellButtonTemplate
+        -- Empty Slot Background aligned at (-2, 2) around the 39x39 button
         local slotBg = btn:CreateTexture(nil, "BACKGROUND")
         slotBg:SetWidth(64)
         slotBg:SetHeight(64)
-        slotBg:SetPoint("TOPLEFT", btn, "TOPLEFT", -3, 3)
+        slotBg:SetPoint("TOPLEFT", btn, "TOPLEFT", -2, 2)
         slotBg:SetTexture("Interface\\Spellbook\\UI-Spellbook-SpellBackground")
 
         local iconTex = btn:CreateTexture(nil, "BORDER")
@@ -946,12 +986,14 @@ local function CreateArtisanBookFrame()
         titleText:SetWidth(96)
         titleText:SetJustifyH("LEFT")
 
-        -- 2. Training Level / Specialization Subtitle
-        local subText = container:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        -- 2. Training Level / Specialization Subtitle (SubSpellFont with zero drop shadow)
+        local subText = container:CreateFontString(nil, "OVERLAY", "SubSpellFont")
         subText:SetPoint("TOPLEFT", titleText, "BOTTOMLEFT", 0, -1)
         subText:SetWidth(96)
         subText:SetJustifyH("LEFT")
-        subText:SetTextColor(0.35, 0.20, 0.05) -- Dark parchment subtext color (readable on Spellbook background)
+        subText:SetTextColor(0.35, 0.20, 0.0)
+        subText:SetShadowOffset(0, 0)
+        subText:SetShadowColor(0, 0, 0, 0)
 
         -- 3. Progress Bar with Current / Max (+Modifier)
         local statusBar = CreateFrame("StatusBar", "ArtisanBookStatusBar" .. i, container)
